@@ -1,0 +1,58 @@
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+
+# Virtual environments
+.venv/
+venv/
+env/
+
+# Environment
+.env
+.env.*
+!.env.example
+
+# Testing
+.pytest_cache/
+.coverage
+htmlcov/
+
+# Type checking
+.mypy_cache/
+
+# Ruff
+.ruff_cache/
+
+# IDE
+.vscode/
+.idea/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Node
+node_modules/
+.next/
+out/
+
+# Build
+dist/
+build/
+*.egg-info/
+
+# Logs
+*.log
+
+# ML
+mlruns/
+*.joblib
+*.pkl
+*.pt
+*.pth
+
+# Data outputs
+data-platform/bronze/*
+data-platform/silver/*
+data-platform/gold/*

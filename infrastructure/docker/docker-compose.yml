@@ -1,0 +1,32 @@
+services:
+
+  postgres:
+    image: postgres:16
+    container_name: kifaru-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: kifaru
+      POSTGRES_USER: kifaru
+      POSTGRES_PASSWORD: kifaru_dev_password
+    ports:
+      - "5432:5432"
+    volumes:
+      - kifaru_postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U kifaru -d kifaru"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  redis:
+    image: redis:7
+    container_name: kifaru-redis
+    restart: unless-stopped
+    ports:
+      - "6379:6379"
+    volumes:
+      - kifaru_redis_data:/data
+
+volumes:
+  kifaru_postgres_data:
+  kifaru_redis_data:
