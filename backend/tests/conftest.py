@@ -2,14 +2,8 @@ import pytest
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 
-from app.core.database import Base
-from datetime import datetime, timezone
-from uuid import uuid4
-
-from fastapi.testclient import TestClient
-
+from app.core.dependencies import get_db
 from app.main import app
-from app.organization.models import Tenant
 
 
 TEST_DATABASE_URL = (
@@ -28,15 +22,16 @@ def db():
 
     session = TestingSession(bind=connection)
 
+    app.dependency_overrides[get_db] = lambda: session
+
     try:
         yield session
     finally:
+        app.dependency_overrides.clear()
+
         session.close()
 
         if transaction.is_active:
             transaction.rollback()
 
         connection.close()
-
-
-

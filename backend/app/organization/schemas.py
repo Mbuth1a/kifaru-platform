@@ -1,6 +1,6 @@
 from uuid import UUID
 from datetime import datetime
-from pydantic import BaseModel, Field, ConfigDict
+from pydantic import AliasChoices, BaseModel, ConfigDict, Field
 
 from app.organization.enums import (
     OrganizationUnitStatus,
@@ -59,17 +59,16 @@ class OrganizationUnitResponse(BaseModel):
     tenant_id: UUID
     legal_entity_id: UUID | None
     parent_id: UUID | None
-
     code: str
     name: str
-
     unit_type: OrganizationUnitType
     status: OrganizationUnitStatus
-
     effective_from: datetime
     effective_to: datetime | None
 
-    metadata: dict
+    metadata: dict = Field(
+        validation_alias=AliasChoices("metadata_json", "metadata")
+    )
 
     created_at: datetime
-    updated_at: datetime    
+    updated_at: datetime
