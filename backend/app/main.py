@@ -1,7 +1,10 @@
 from fastapi import FastAPI
 
+from app.organization.routes import router as organization_router
+
+
 app = FastAPI(
-    title="Farsi HR & Payroll Intelligence Platform",
+    title="Kifaru HR & Payroll Intelligence Platform",
     version="0.1.0",
 )
 
@@ -13,3 +16,6 @@ async def health_check():
         "service": "kifaru-api",
         "version": "0.1.0",
     }
+
+
+app.include_router(organization_router)
