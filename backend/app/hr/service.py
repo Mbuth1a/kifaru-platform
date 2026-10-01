@@ -5,7 +5,7 @@ from uuid import UUID
 
 from sqlalchemy.orm import Session
 
-from app.hr.models import Employee, EmploymentAssignment, Person
+from app.hr.models import Employee, EmploymentAssignment, EmploymentTerm, Person
 from app.organization.models import OrganizationUnit
 
 
@@ -457,6 +457,196 @@ class EmploymentAssignmentService:
             )
             .order_by(
                 EmploymentAssignment.effective_from.desc()
+            )
+            .all()
+        )
+
+
+
+
+class EmploymentTermService:
+    """
+    Application/service layer for employment compensation terms.
+
+    Responsibilities:
+    - Enforce tenant isolation
+    - Validate employee ownership
+    - Validate effective dates
+    - Create and retrieve employment terms
+    - Provide current/history employment-term queries
+
+    PostgreSQL remains the final authority for preventing
+    overlapping employment-term intervals.
+    """
+
+    def __init__(self, db: Session):
+        self.db = db
+
+    def _get_employee(
+        self,
+        *,
+        tenant_id: UUID,
+        employee_id: UUID,
+    ) -> Employee:
+
+        employee = (
+            self.db.query(Employee)
+            .filter(
+                Employee.id == employee_id,
+                Employee.tenant_id == tenant_id,
+            )
+            .first()
+        )
+
+        if employee is None:
+            raise ValueError(
+                "Employee not found for this tenant."
+            )
+
+        return employee
+
+    def _validate_effective_dates(
+        self,
+        *,
+        effective_from: datetime,
+        effective_to: datetime | None,
+    ) -> None:
+
+        if (
+            effective_to is not None
+            and effective_to <= effective_from
+        ):
+            raise ValueError(
+                "effective_to must be later than effective_from."
+            )
+
+    def create_term(
+        self,
+        *,
+        tenant_id: UUID,
+        employee_id: UUID,
+        effective_from: datetime,
+        effective_to: datetime | None = None,
+        pay_frequency,
+        compensation_basis,
+        currency_code: str,
+        amount,
+    ) -> EmploymentTerm:
+
+        self._get_employee(
+            tenant_id=tenant_id,
+            employee_id=employee_id,
+        )
+
+        self._validate_effective_dates(
+            effective_from=effective_from,
+            effective_to=effective_to,
+        )
+
+        if amount <= 0:
+            raise ValueError(
+                "amount must be greater than zero."
+            )
+
+        if len(currency_code) != 3:
+            raise ValueError(
+                "currency_code must contain exactly 3 characters."
+            )
+
+        term = EmploymentTerm(
+            tenant_id=tenant_id,
+            employee_id=employee_id,
+            effective_from=effective_from,
+            effective_to=effective_to,
+            pay_frequency=pay_frequency,
+            compensation_basis=compensation_basis,
+            currency_code=currency_code.upper(),
+            amount=amount,
+        )
+
+        self.db.add(term)
+        self.db.flush()
+
+        return term
+
+    def get_term(
+        self,
+        *,
+        tenant_id: UUID,
+        term_id: UUID,
+    ) -> EmploymentTerm:
+
+        term = (
+            self.db.query(EmploymentTerm)
+            .filter(
+                EmploymentTerm.id == term_id,
+                EmploymentTerm.tenant_id == tenant_id,
+            )
+            .first()
+        )
+
+        if term is None:
+            raise ValueError(
+                "Employment term not found."
+            )
+
+        return term
+
+    def get_current_term(
+        self,
+        *,
+        tenant_id: UUID,
+        employee_id: UUID,
+        at: datetime | None = None,
+    ) -> EmploymentTerm | None:
+
+        self._get_employee(
+            tenant_id=tenant_id,
+            employee_id=employee_id,
+        )
+
+        current_at = at or datetime.now(timezone.utc)
+
+        return (
+            self.db.query(EmploymentTerm)
+            .filter(
+                EmploymentTerm.tenant_id == tenant_id,
+                EmploymentTerm.employee_id == employee_id,
+                EmploymentTerm.effective_from <= current_at,
+                (
+                    (EmploymentTerm.effective_to.is_(None))
+                    | (
+                        EmploymentTerm.effective_to
+                        > current_at
+                    )
+                ),
+            )
+            .order_by(
+                EmploymentTerm.effective_from.desc()
+            )
+            .first()
+        )
+
+    def get_term_history(
+        self,
+        *,
+        tenant_id: UUID,
+        employee_id: UUID,
+    ) -> list[EmploymentTerm]:
+
+        self._get_employee(
+            tenant_id=tenant_id,
+            employee_id=employee_id,
+        )
+
+        return (
+            self.db.query(EmploymentTerm)
+            .filter(
+                EmploymentTerm.tenant_id == tenant_id,
+                EmploymentTerm.employee_id == employee_id,
+            )
+            .order_by(
+                EmploymentTerm.effective_from.desc()
             )
             .all()
         )

@@ -9,12 +9,17 @@ from app.hr.schemas import (
     EmployeeResponse,
     EmploymentAssignmentCreate,
     EmploymentAssignmentResponse,
+    EmploymentTermCreate,
+    EmploymentTermResponse,
     PersonCreate,
     PersonResponse,
 )
+
+
 from app.hr.service import (
     EmployeeService,
     EmploymentAssignmentService,
+    EmploymentTermService,
     PersonService,
 )
 
@@ -209,6 +214,99 @@ def get_assignment_history(
 ):
     try:
         return EmploymentAssignmentService(db).get_assignment_history(
+            tenant_id=tenant_id,
+            employee_id=employee_id,
+        )
+    except ValueError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=str(exc),
+        ) from exc
+
+
+
+
+@router.post(
+    "/employment-terms",
+    response_model=EmploymentTermResponse,
+    status_code=status.HTTP_201_CREATED,
+)
+def create_employment_term(
+    payload: EmploymentTermCreate,
+    tenant_id: UUID = Depends(get_tenant_id),
+    db: Session = Depends(get_db),
+):
+    try:
+        return EmploymentTermService(db).create_term(
+            tenant_id=tenant_id,
+            employee_id=payload.employee_id,
+            effective_from=payload.effective_from,
+            effective_to=payload.effective_to,
+            pay_frequency=payload.pay_frequency,
+            compensation_basis=payload.compensation_basis,
+            currency_code=payload.currency_code,
+            amount=payload.amount,
+        )
+    except ValueError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=str(exc),
+        ) from exc
+
+
+@router.get(
+    "/employment-terms/{term_id}",
+    response_model=EmploymentTermResponse,
+)
+def get_employment_term(
+    term_id: UUID,
+    tenant_id: UUID = Depends(get_tenant_id),
+    db: Session = Depends(get_db),
+):
+    try:
+        return EmploymentTermService(db).get_term(
+            tenant_id=tenant_id,
+            term_id=term_id,
+        )
+    except ValueError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=str(exc),
+        ) from exc
+
+
+@router.get(
+    "/employees/{employee_id}/term/current",
+    response_model=EmploymentTermResponse | None,
+)
+def get_current_employment_term(
+    employee_id: UUID,
+    tenant_id: UUID = Depends(get_tenant_id),
+    db: Session = Depends(get_db),
+):
+    try:
+        return EmploymentTermService(db).get_current_term(
+            tenant_id=tenant_id,
+            employee_id=employee_id,
+        )
+    except ValueError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=str(exc),
+        ) from exc
+
+
+@router.get(
+    "/employees/{employee_id}/term/history",
+    response_model=list[EmploymentTermResponse],
+)
+def get_employment_term_history(
+    employee_id: UUID,
+    tenant_id: UUID = Depends(get_tenant_id),
+    db: Session = Depends(get_db),
+):
+    try:
+        return EmploymentTermService(db).get_term_history(
             tenant_id=tenant_id,
             employee_id=employee_id,
         )

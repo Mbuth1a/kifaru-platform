@@ -1,10 +1,16 @@
 from datetime import date, datetime
 from uuid import UUID
-
+from decimal import Decimal
 from pydantic import BaseModel, ConfigDict, Field
 
-from .enums import EmploymentStatus, EmploymentType, Gender
 
+from app.hr.enums import (
+    CompensationBasis,
+    EmploymentStatus,
+    EmploymentType,
+    Gender,
+    PayFrequency,
+)
 
 class PersonCreate(BaseModel):
     person_number: str = Field(min_length=1, max_length=50)
@@ -97,5 +103,33 @@ class EmploymentAssignmentResponse(BaseModel):
     manager_employee_id: UUID | None
     effective_from: datetime
     effective_to: datetime | None
+    created_at: datetime
+    updated_at: datetime
+
+
+
+
+class EmploymentTermCreate(BaseModel):
+    employee_id: UUID
+    effective_from: datetime
+    effective_to: datetime | None = None
+    pay_frequency: PayFrequency
+    compensation_basis: CompensationBasis
+    currency_code: str = Field(min_length=3, max_length=3)
+    amount: Decimal = Field(gt=0, max_digits=18, decimal_places=2)
+
+
+class EmploymentTermResponse(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: UUID
+    tenant_id: UUID
+    employee_id: UUID
+    effective_from: datetime
+    effective_to: datetime | None
+    pay_frequency: PayFrequency
+    compensation_basis: CompensationBasis
+    currency_code: str
+    amount: Decimal
     created_at: datetime
     updated_at: datetime

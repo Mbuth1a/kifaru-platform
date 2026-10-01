@@ -354,3 +354,282 @@ def test_invalid_employment_dates_return_400(db):
     assert response.json()["detail"] == (
       "termination_date must be on or after hire_date."
     )
+
+
+
+def test_create_and_get_employment_term(db):
+    tenant = create_tenant(db)
+
+    person_response = client.post(
+        "/hr/persons",
+        headers={"X-Tenant-ID": str(tenant.id)},
+        json={
+            "person_number": "P-9001",
+            "first_name": "Peter",
+            "last_name": "Term",
+        },
+    )
+
+    assert person_response.status_code == 201
+    person_id = person_response.json()["id"]
+
+    employee_response = client.post(
+        "/hr/employees",
+        headers={"X-Tenant-ID": str(tenant.id)},
+        json={
+            "person_id": person_id,
+            "employee_number": "EMP-9001",
+            "employment_status": "ACTIVE",
+            "employment_type": "PERMANENT",
+            "hire_date": "2026-01-01",
+        },
+    )
+
+    assert employee_response.status_code == 201
+    employee_id = employee_response.json()["id"]
+
+    response = client.post(
+        "/hr/employment-terms",
+        headers={"X-Tenant-ID": str(tenant.id)},
+        json={
+            "employee_id": employee_id,
+            "effective_from": "2026-01-01T00:00:00Z",
+            "pay_frequency": "MONTHLY",
+            "compensation_basis": "SALARY",
+            "currency_code": "KES",
+            "amount": "150000.00",
+        },
+    )
+
+    assert response.status_code == 201
+
+    data = response.json()
+
+    assert data["tenant_id"] == str(tenant.id)
+    assert data["employee_id"] == employee_id
+    assert data["pay_frequency"] == "MONTHLY"
+    assert data["compensation_basis"] == "SALARY"
+    assert data["currency_code"] == "KES"
+    assert data["amount"] == "150000.00"
+
+    term_id = data["id"]
+
+    response = client.get(
+        f"/hr/employment-terms/{term_id}",
+        headers={"X-Tenant-ID": str(tenant.id)},
+    )
+
+    assert response.status_code == 200
+
+    retrieved = response.json()
+
+    assert retrieved["id"] == term_id
+    assert retrieved["employee_id"] == employee_id
+    assert retrieved["amount"] == "150000.00"
+
+
+
+def test_employment_term_current_and_history(db):
+    tenant = create_tenant(db)
+
+    person_response = client.post(
+        "/hr/persons",
+        headers={"X-Tenant-ID": str(tenant.id)},
+        json={
+            "person_number": "P-9101",
+            "first_name": "Grace",
+            "last_name": "Wanjiku",
+        },
+    )
+
+    assert person_response.status_code == 201
+
+    employee_response = client.post(
+        "/hr/employees",
+        headers={"X-Tenant-ID": str(tenant.id)},
+        json={
+            "person_id": person_response.json()["id"],
+            "employee_number": "EMP-9101",
+            "employment_status": "ACTIVE",
+            "employment_type": "PERMANENT",
+            "hire_date": "2026-01-01",
+        },
+    )
+
+    assert employee_response.status_code == 201
+    employee_id = employee_response.json()["id"]
+
+    first = client.post(
+        "/hr/employment-terms",
+        headers={"X-Tenant-ID": str(tenant.id)},
+        json={
+            "employee_id": employee_id,
+            "effective_from": "2026-01-01T00:00:00Z",
+            "effective_to": "2026-07-01T00:00:00Z",
+            "pay_frequency": "MONTHLY",
+            "compensation_basis": "SALARY",
+            "currency_code": "KES",
+            "amount": "120000.00",
+        },
+    )
+
+    second = client.post(
+        "/hr/employment-terms",
+        headers={"X-Tenant-ID": str(tenant.id)},
+        json={
+            "employee_id": employee_id,
+            "effective_from": "2026-07-01T00:00:00Z",
+            "pay_frequency": "MONTHLY",
+            "compensation_basis": "SALARY",
+            "currency_code": "KES",
+            "amount": "150000.00",
+        },
+    )
+
+    assert first.status_code == 201
+    assert second.status_code == 201
+
+    response = client.get(
+        f"/hr/employees/{employee_id}/term/current",
+        headers={"X-Tenant-ID": str(tenant.id)},
+    )
+
+    assert response.status_code == 200
+
+    current = response.json()
+
+    assert current["id"] == second.json()["id"]
+    assert current["amount"] == "150000.00"
+
+    response = client.get(
+        f"/hr/employees/{employee_id}/term/history",
+        headers={"X-Tenant-ID": str(tenant.id)},
+    )
+
+    assert response.status_code == 200
+
+    history = response.json()
+
+    assert len(history) == 2
+    assert history[0]["amount"] == "150000.00"
+    assert history[1]["amount"] == "120000.00"
+
+
+
+def test_employment_term_is_tenant_isolated(db):
+    tenant_a = create_tenant(db, "Tenant A")
+    tenant_b = create_tenant(db, "Tenant B")
+
+    person_response = client.post(
+        "/hr/persons",
+        headers={"X-Tenant-ID": str(tenant_a.id)},
+        json={
+            "person_number": "P-9201",
+            "first_name": "Tenant",
+            "last_name": "Employee",
+        },
+    )
+
+    assert person_response.status_code == 201
+
+    employee_response = client.post(
+        "/hr/employees",
+        headers={"X-Tenant-ID": str(tenant_a.id)},
+        json={
+            "person_id": person_response.json()["id"],
+            "employee_number": "EMP-9201",
+            "employment_status": "ACTIVE",
+            "employment_type": "PERMANENT",
+            "hire_date": "2026-01-01",
+        },
+    )
+
+    assert employee_response.status_code == 201
+    employee_id = employee_response.json()["id"]
+
+    term_response = client.post(
+        "/hr/employment-terms",
+        headers={"X-Tenant-ID": str(tenant_a.id)},
+        json={
+            "employee_id": employee_id,
+            "effective_from": "2026-01-01T00:00:00Z",
+            "pay_frequency": "MONTHLY",
+            "compensation_basis": "SALARY",
+            "currency_code": "KES",
+            "amount": "100000.00",
+        },
+    )
+
+    assert term_response.status_code == 201
+    term_id = term_response.json()["id"]
+
+    response = client.get(
+        f"/hr/employment-terms/{term_id}",
+        headers={"X-Tenant-ID": str(tenant_b.id)},
+    )
+
+    assert response.status_code == 404
+
+    response = client.get(
+        f"/hr/employees/{employee_id}/term/current",
+        headers={"X-Tenant-ID": str(tenant_b.id)},
+    )
+
+    assert response.status_code == 404
+
+    response = client.get(
+        f"/hr/employees/{employee_id}/term/history",
+        headers={"X-Tenant-ID": str(tenant_b.id)},
+    )
+
+    assert response.status_code == 404
+
+
+def test_invalid_employment_term_dates_return_400(db):
+    tenant = create_tenant(db)
+
+    person_response = client.post(
+        "/hr/persons",
+        headers={"X-Tenant-ID": str(tenant.id)},
+        json={
+            "person_number": "P-9301",
+            "first_name": "Invalid",
+            "last_name": "Term",
+        },
+    )
+
+    assert person_response.status_code == 201
+
+    employee_response = client.post(
+        "/hr/employees",
+        headers={"X-Tenant-ID": str(tenant.id)},
+        json={
+            "person_id": person_response.json()["id"],
+            "employee_number": "EMP-9301",
+            "employment_status": "ACTIVE",
+            "employment_type": "PERMANENT",
+            "hire_date": "2026-01-01",
+        },
+    )
+
+    assert employee_response.status_code == 201
+    employee_id = employee_response.json()["id"]
+
+    response = client.post(
+        "/hr/employment-terms",
+        headers={"X-Tenant-ID": str(tenant.id)},
+        json={
+            "employee_id": employee_id,
+            "effective_from": "2026-07-01T00:00:00Z",
+            "effective_to": "2026-06-01T00:00:00Z",
+            "pay_frequency": "MONTHLY",
+            "compensation_basis": "SALARY",
+            "currency_code": "KES",
+            "amount": "150000.00",
+        },
+    )
+
+    assert response.status_code == 400
+    assert response.json()["detail"] == (
+        "effective_to must be later than effective_from."
+    )

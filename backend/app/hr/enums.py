@@ -23,3 +23,17 @@ class EmploymentType(str, Enum):
     CASUAL = "CASUAL"
     INTERN = "INTERN"
     PART_TIME = "PART_TIME"
+
+
+
+class PayFrequency(str, Enum):
+    MONTHLY = "MONTHLY"
+    BIWEEKLY = "BIWEEKLY"
+    WEEKLY = "WEEKLY"
+    DAILY = "DAILY"
+    HOURLY = "HOURLY"
+
+
+class CompensationBasis(str, Enum):
+    SALARY = "SALARY"
+    WAGE = "WAGE"

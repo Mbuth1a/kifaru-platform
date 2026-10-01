@@ -2,24 +2,34 @@ import uuid
 
 from datetime import date, datetime
 
+from decimal import Decimal
+
 from sqlalchemy import (
+    CheckConstraint,
     Date,
     DateTime,
     Enum,
     ForeignKey,
     ForeignKeyConstraint,
     Index,
+    Numeric,
     String,
     UniqueConstraint,
-    CheckConstraint,
     func,
+    text,
 )
 from sqlalchemy.dialects.postgresql import UUID, ExcludeConstraint
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.core.database import Base
-from .enums import Gender, EmploymentStatus, EmploymentType
 
+from .enums import (
+    CompensationBasis,
+    EmploymentStatus,
+    EmploymentType,
+    Gender,
+    PayFrequency,
+)
 
 class Person(Base):
     __tablename__ = "person"
@@ -427,5 +437,135 @@ class EmploymentAssignment(Base):
 
     organization_unit = relationship(
         "OrganizationUnit",
+        overlaps="tenant",
+    )
+
+
+class EmploymentTerm(Base):
+    __tablename__ = "employment_term"
+
+    __table_args__ = (
+        CheckConstraint(
+            "effective_to IS NULL OR effective_to > effective_from",
+            name="ck_employment_term_effective_dates",
+        ),
+        CheckConstraint(
+            "amount > 0",
+            name="ck_employment_term_positive_amount",
+        ),
+        UniqueConstraint(
+            "tenant_id",
+            "id",
+            name="uq_employment_term_tenant_id",
+        ),
+        ForeignKeyConstraint(
+            ["tenant_id", "employee_id"],
+            ["employee.tenant_id", "employee.id"],
+            ondelete="RESTRICT",
+            name="fk_employment_term_employee_same_tenant",
+        ),
+        Index(
+            "ix_employment_term_tenant",
+            "tenant_id",
+        ),
+        Index(
+            "ix_employment_term_employee",
+            "tenant_id",
+            "employee_id",
+        ),
+        Index(
+            "ix_employment_term_effective_dates",
+            "tenant_id",
+            "effective_from",
+            "effective_to",
+        ),
+        ExcludeConstraint(
+            ("tenant_id", "="),
+            ("employee_id", "="),
+            (
+                func.tstzrange(
+                    "effective_from",
+                    func.coalesce(
+                        "effective_to",
+                          text("'infinity'::timestamptz"),
+                    ),
+                    "[)",
+                ),
+                "&&",
+            ),
+            name="ex_employment_term_no_overlap",
+        ),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True),
+        primary_key=True,
+        default=uuid.uuid4,
+    )
+
+    tenant_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("tenant.id", ondelete="RESTRICT"),
+        nullable=False,
+    )
+
+    employee_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True),
+        nullable=False,
+    )
+
+    effective_from: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        nullable=False,
+    )
+
+    effective_to: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True),
+        nullable=True,
+    )
+
+    pay_frequency: Mapped[PayFrequency] = mapped_column(
+        Enum(
+            PayFrequency,
+            name="pay_frequency",
+            create_type=False,
+        ),
+        nullable=False,
+    )
+
+    compensation_basis: Mapped[CompensationBasis] = mapped_column(
+        Enum(
+            CompensationBasis,
+            name="compensation_basis",
+            create_type=False,
+        ),
+        nullable=False,
+    )
+
+    currency_code: Mapped[str] = mapped_column(
+        String(3),
+        nullable=False,
+    )
+
+    amount: Mapped[Decimal] = mapped_column(
+        Numeric(18, 2),
+        nullable=False,
+    )
+
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        server_default=func.now(),
+        nullable=False,
+    )
+
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        server_default=func.now(),
+        onupdate=func.now(),
+        nullable=False,
+    )
+
+    employee = relationship(
+        "Employee",
         overlaps="tenant",
     )
