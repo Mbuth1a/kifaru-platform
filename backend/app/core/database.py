@@ -20,5 +20,3 @@ class Base(DeclarativeBase):
     pass
 
 
-# Register ORM models
-from app.organization.models import Tenant
