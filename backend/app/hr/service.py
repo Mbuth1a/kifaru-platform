@@ -4,8 +4,14 @@ from datetime import date, datetime, timezone
 from uuid import UUID
 
 from sqlalchemy.orm import Session
-
-from app.hr.models import Employee, EmploymentAssignment, EmploymentTerm, Person
+from app.hr.enums import EmploymentStatus
+from app.hr.models import (
+    Employee,
+    EmploymentAssignment,
+    EmploymentStatusHistory,
+    EmploymentTerm,
+    Person,
+)
 from app.organization.models import OrganizationUnit
 
 
@@ -135,7 +141,8 @@ class EmployeeService:
         *,
         hire_date: date,
         termination_date: date | None,
-    ) -> None:
+        employment_status,
+        ) -> None:
 
         if (
             termination_date is not None
@@ -143,6 +150,30 @@ class EmployeeService:
         ):
             raise ValueError(
                 "termination_date must be on or after hire_date."
+            )
+
+        if (
+            employment_status == EmploymentStatus.TERMINATED
+            and termination_date is None
+        ):
+            raise ValueError(
+                "termination_date is required for terminated employees."
+            )
+
+        if (
+            employment_status == EmploymentStatus.TERMINATED
+            and termination_date != hire_date
+        ):
+            raise ValueError(
+                "TERMINATED employees must have termination_date equal to hire_date."
+            )
+
+        if (
+            employment_status != EmploymentStatus.TERMINATED
+            and termination_date is not None
+        ):
+            raise ValueError(
+                "termination_date is only allowed for terminated employees."
             )
 
     def create_employee(
@@ -166,6 +197,7 @@ class EmployeeService:
         self._validate_employment_dates(
             hire_date=hire_date,
             termination_date=termination_date,
+            employment_status=employment_status,
         )
 
         existing = (
@@ -196,6 +228,24 @@ class EmployeeService:
         self.db.add(employee)
         self.db.flush()
 
+        initial_status_effective_from = datetime.combine(
+            hire_date,
+            datetime.min.time(),
+            tzinfo=timezone.utc,
+        )
+
+        initial_status = EmploymentStatusHistory(
+            tenant_id=tenant_id,
+            employee_id=employee.id,
+            status=employment_status,
+            effective_from=initial_status_effective_from,
+            effective_to=None,
+            reason="Initial employment status",
+        )
+
+        self.db.add(initial_status)
+        self.db.flush()
+
         return employee
 
     def get_employee(
@@ -218,6 +268,238 @@ class EmployeeService:
             raise ValueError("Employee not found.")
 
         return employee
+
+
+
+
+class EmploymentStatusHistoryService:
+    """
+    Application/service layer for employee employment-status lifecycle.
+
+    Responsibilities:
+    - Enforce tenant isolation
+    - Validate employee ownership
+    - Create the initial status history
+    - Perform controlled status transitions
+    - Keep Employee.employment_status synchronized
+    - Provide current/history status queries
+
+    PostgreSQL remains the final authority for preventing
+    overlapping status-history intervals.
+    """
+
+    def __init__(self, db: Session):
+        self.db = db
+
+    def _get_employee(
+        self,
+        *,
+        tenant_id: UUID,
+        employee_id: UUID,
+    ) -> Employee:
+
+        employee = (
+            self.db.query(Employee)
+            .filter(
+                Employee.id == employee_id,
+                Employee.tenant_id == tenant_id,
+            )
+            .first()
+        )
+
+        if employee is None:
+            raise ValueError(
+                "Employee not found for this tenant."
+            )
+
+        return employee
+
+    def _validate_effective_dates(
+        self,
+        *,
+        effective_from: datetime,
+        effective_to: datetime | None,
+    ) -> None:
+
+        if (
+            effective_to is not None
+            and effective_to <= effective_from
+        ):
+            raise ValueError(
+                "effective_to must be later than effective_from."
+            )
+
+    
+    def transition_status(
+        self,
+        *,
+        tenant_id: UUID,
+        employee_id: UUID,
+        status,
+        effective_from: datetime,
+        reason: str | None = None,
+    ) -> EmploymentStatusHistory:
+
+        employee = self._get_employee(
+            tenant_id=tenant_id,
+            employee_id=employee_id,
+        )
+
+        if employee.employment_status == EmploymentStatus.TERMINATED:
+            raise ValueError(
+                "Terminated employees cannot undergo further status transitions."
+        )
+
+        if effective_from.tzinfo is None:
+            raise ValueError(
+                "effective_from must be timezone-aware."
+            )
+
+        now = datetime.now(timezone.utc)
+
+        if effective_from > now:
+            raise ValueError(
+                "effective_from cannot be in the future."
+            )
+
+        latest_history = (
+            self.db.query(EmploymentStatusHistory)
+            .filter(
+                EmploymentStatusHistory.tenant_id == tenant_id,
+                EmploymentStatusHistory.employee_id == employee_id,
+            )
+            .order_by(
+                EmploymentStatusHistory.effective_from.desc()
+            )
+            .first()
+        )
+
+        if latest_history is None:
+            raise ValueError(
+                "No employment status history exists for this employee."
+            )
+
+        if effective_from <= latest_history.effective_from:
+            raise ValueError(
+                "effective_from must be later than the current status period start."
+            )
+
+        current_history = (
+            self.db.query(EmploymentStatusHistory)
+            .filter(
+                EmploymentStatusHistory.tenant_id == tenant_id,
+                EmploymentStatusHistory.employee_id == employee_id,
+                EmploymentStatusHistory.effective_from <= effective_from,
+                (
+                    (EmploymentStatusHistory.effective_to.is_(None))
+                    | (
+                        EmploymentStatusHistory.effective_to
+                        > effective_from
+                    )
+                ),
+            )
+            .order_by(
+                EmploymentStatusHistory.effective_from.desc()
+            )
+            .first()
+        )
+
+        if current_history is None:
+            raise ValueError(
+                "No employment status history exists for this employee."
+            )
+
+        if current_history.status == status:
+            raise ValueError(
+                "Employee already has this employment status."
+            )
+
+        current_history.effective_to = effective_from
+
+        new_history = EmploymentStatusHistory(
+            tenant_id=tenant_id,
+            employee_id=employee_id,
+            status=status,
+            effective_from=effective_from,
+            effective_to=None,
+            reason=reason,
+        )
+
+        self.db.add(new_history)
+
+        employee.employment_status = status
+
+        if status == EmploymentStatus.TERMINATED:
+            employee.termination_date = effective_from.date()
+            employee.termination_reason = reason
+
+        self.db.flush()
+
+        return new_history
+
+
+
+    def get_current_status(
+        self,
+        *,
+        tenant_id: UUID,
+        employee_id: UUID,
+        at: datetime | None = None,
+    ) -> EmploymentStatusHistory | None:
+
+        self._get_employee(
+            tenant_id=tenant_id,
+            employee_id=employee_id,
+        )
+
+        current_at = at or datetime.now(timezone.utc)
+
+        return (
+            self.db.query(EmploymentStatusHistory)
+            .filter(
+                EmploymentStatusHistory.tenant_id == tenant_id,
+                EmploymentStatusHistory.employee_id == employee_id,
+                EmploymentStatusHistory.effective_from <= current_at,
+                (
+                    (EmploymentStatusHistory.effective_to.is_(None))
+                    | (
+                        EmploymentStatusHistory.effective_to
+                        > current_at
+                    )
+                ),
+            )
+            .order_by(
+                EmploymentStatusHistory.effective_from.desc()
+            )
+            .first()
+        )
+
+    def get_status_history(
+        self,
+        *,
+        tenant_id: UUID,
+        employee_id: UUID,
+    ) -> list[EmploymentStatusHistory]:
+
+        self._get_employee(
+            tenant_id=tenant_id,
+            employee_id=employee_id,
+        )
+
+        return (
+            self.db.query(EmploymentStatusHistory)
+            .filter(
+                EmploymentStatusHistory.tenant_id == tenant_id,
+                EmploymentStatusHistory.employee_id == employee_id,
+            )
+            .order_by(
+                EmploymentStatusHistory.effective_from.desc()
+            )
+            .all()
+        )
+
+
+
 
 
 class EmploymentAssignmentService:

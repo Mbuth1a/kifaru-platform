@@ -7,8 +7,7 @@ class LegalEntityRepository:
 
     def create(self, db: Session, entity: LegalEntity):
         db.add(entity)
-        db.commit()
-        db.refresh(entity)
+        db.flush()
         return entity
 
     def get(self, db: Session, entity_id):

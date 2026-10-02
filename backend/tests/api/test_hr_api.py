@@ -1,8 +1,8 @@
 from datetime import date, datetime, timezone
 from uuid import uuid4
-
+from sqlalchemy import text
 from fastapi.testclient import TestClient
-
+from tests.conftest import engine
 from app.core.database import Base
 from app.main import app
 from app.organization.enums import OrganizationUnitStatus, OrganizationUnitType
@@ -633,3 +633,400 @@ def test_invalid_employment_term_dates_return_400(db):
     assert response.json()["detail"] == (
         "effective_to must be later than effective_from."
     )
+
+
+
+
+def test_employee_initial_status_history_is_created(db):
+    tenant = create_tenant(db)
+
+    person_response = client.post(
+        "/hr/persons",
+        headers={"X-Tenant-ID": str(tenant.id)},
+        json={
+            "person_number": "P-9401",
+            "first_name": "Initial",
+            "last_name": "Status",
+        },
+    )
+
+    assert person_response.status_code == 201
+
+    employee_response = client.post(
+        "/hr/employees",
+        headers={"X-Tenant-ID": str(tenant.id)},
+        json={
+            "person_id": person_response.json()["id"],
+            "employee_number": "EMP-9401",
+            "employment_status": "ACTIVE",
+            "employment_type": "PERMANENT",
+            "hire_date": "2026-01-01",
+        },
+    )
+
+    assert employee_response.status_code == 201
+    employee_id = employee_response.json()["id"]
+
+    response = client.get(
+        f"/hr/employees/{employee_id}/status/history",
+        headers={"X-Tenant-ID": str(tenant.id)},
+    )
+
+    assert response.status_code == 200
+
+    history = response.json()
+
+    assert len(history) == 1
+    assert history[0]["employee_id"] == employee_id
+    assert history[0]["status"] == "ACTIVE"
+    assert history[0]["effective_from"] == "2026-01-01T00:00:00Z"
+    assert history[0]["effective_to"] is None
+    assert history[0]["reason"] == "Initial employment status"
+
+
+def test_employee_status_transition_succeeds(db):
+    tenant = create_tenant(db)
+
+    person_response = client.post(
+        "/hr/persons",
+        headers={"X-Tenant-ID": str(tenant.id)},
+        json={
+            "person_number": "P-9501",
+            "first_name": "Status",
+            "last_name": "Transition",
+        },
+    )
+
+    assert person_response.status_code == 201
+
+    employee_response = client.post(
+        "/hr/employees",
+        headers={"X-Tenant-ID": str(tenant.id)},
+        json={
+            "person_id": person_response.json()["id"],
+            "employee_number": "EMP-9501",
+            "employment_status": "ACTIVE",
+            "employment_type": "PERMANENT",
+            "hire_date": "2026-01-01",
+        },
+    )
+
+    assert employee_response.status_code == 201
+
+    employee_id = employee_response.json()["id"]
+
+    response = client.post(
+        f"/hr/employees/{employee_id}/status",
+        headers={"X-Tenant-ID": str(tenant.id)},
+        json={
+            "status": "ON_LEAVE",
+            "effective_from": "2026-06-01T00:00:00Z",
+            "reason": "Approved leave",
+        },
+    )
+
+    assert response.status_code == 201
+
+    data = response.json()
+
+    assert data["tenant_id"] == str(tenant.id)
+    assert data["employee_id"] == employee_id
+    assert data["status"] == "ON_LEAVE"
+    assert data["effective_from"] == "2026-06-01T00:00:00Z"
+    assert data["effective_to"] is None
+    assert data["reason"] == "Approved leave"
+
+    employee_response = client.get(
+        f"/hr/employees/{employee_id}",
+        headers={"X-Tenant-ID": str(tenant.id)},
+    )
+
+    assert employee_response.status_code == 200
+    assert employee_response.json()["employment_status"] == "ON_LEAVE"
+
+
+def test_employee_current_status_returns_current_period(db):
+    tenant = create_tenant(db)
+
+    person_response = client.post(
+        "/hr/persons",
+        headers={"X-Tenant-ID": str(tenant.id)},
+        json={
+            "person_number": "P-9601",
+            "first_name": "Current",
+            "last_name": "Status",
+        },
+    )
+
+    employee_response = client.post(
+        "/hr/employees",
+        headers={"X-Tenant-ID": str(tenant.id)},
+        json={
+            "person_id": person_response.json()["id"],
+            "employee_number": "EMP-9601",
+            "employment_status": "ACTIVE",
+            "employment_type": "PERMANENT",
+            "hire_date": "2026-01-01",
+        },
+    )
+
+    assert employee_response.status_code == 201
+
+    employee_id = employee_response.json()["id"]
+
+    transition_response = client.post(
+        f"/hr/employees/{employee_id}/status",
+        headers={"X-Tenant-ID": str(tenant.id)},
+        json={
+            "status": "ON_LEAVE",
+            "effective_from": "2026-06-01T00:00:00Z",
+            "reason": "Annual leave",
+        },
+    )
+
+    assert transition_response.status_code == 201
+
+    response = client.get(
+        f"/hr/employees/{employee_id}/status/current",
+        headers={"X-Tenant-ID": str(tenant.id)},
+    )
+
+    assert response.status_code == 200
+
+    current = response.json()
+
+    assert current["employee_id"] == employee_id
+    assert current["status"] == "ON_LEAVE"
+    assert current["effective_from"] == "2026-06-01T00:00:00Z"
+    assert current["effective_to"] is None
+
+
+def test_employee_status_history_returns_effective_dated_history(db):
+    tenant = create_tenant(db)
+
+    person_response = client.post(
+        "/hr/persons",
+        headers={"X-Tenant-ID": str(tenant.id)},
+        json={
+            "person_number": "P-9701",
+            "first_name": "Status",
+            "last_name": "History",
+        },
+    )
+
+    employee_response = client.post(
+        "/hr/employees",
+        headers={"X-Tenant-ID": str(tenant.id)},
+        json={
+            "person_id": person_response.json()["id"],
+            "employee_number": "EMP-9701",
+            "employment_status": "ACTIVE",
+            "employment_type": "PERMANENT",
+            "hire_date": "2026-01-01",
+        },
+    )
+
+    assert employee_response.status_code == 201
+
+    employee_id = employee_response.json()["id"]
+
+    first_transition = client.post(
+        f"/hr/employees/{employee_id}/status",
+        headers={"X-Tenant-ID": str(tenant.id)},
+        json={
+            "status": "ON_LEAVE",
+            "effective_from": "2026-04-01T00:00:00Z",
+            "reason": "Leave",
+        },
+    )
+
+    second_transition = client.post(
+        f"/hr/employees/{employee_id}/status",
+        headers={"X-Tenant-ID": str(tenant.id)},
+        json={
+            "status": "SUSPENDED",
+            "effective_from": "2026-07-01T00:00:00Z",
+            "reason": "Administrative suspension",
+        },
+    )
+
+    assert first_transition.status_code == 201
+    assert second_transition.status_code == 201
+
+    response = client.get(
+        f"/hr/employees/{employee_id}/status/history",
+        headers={"X-Tenant-ID": str(tenant.id)},
+    )
+
+    assert response.status_code == 200
+
+    history = response.json()
+
+    assert len(history) == 3
+
+    assert history[0]["status"] == "SUSPENDED"
+    assert history[0]["effective_from"] == "2026-07-01T00:00:00Z"
+    assert history[0]["effective_to"] is None
+
+    assert history[1]["status"] == "ON_LEAVE"
+    assert history[1]["effective_from"] == "2026-04-01T00:00:00Z"
+    assert history[1]["effective_to"] == "2026-07-01T00:00:00Z"
+
+    assert history[2]["status"] == "ACTIVE"
+    assert history[2]["effective_from"] == "2026-01-01T00:00:00Z"
+    assert history[2]["effective_to"] == "2026-04-01T00:00:00Z"
+
+
+def test_employee_status_transition_rejects_future_effective_date(db):
+    tenant = create_tenant(db)
+
+    person_response = client.post(
+        "/hr/persons",
+        headers={"X-Tenant-ID": str(tenant.id)},
+        json={
+            "person_number": "P-9801",
+            "first_name": "Future",
+            "last_name": "Status",
+        },
+    )
+
+    employee_response = client.post(
+        "/hr/employees",
+        headers={"X-Tenant-ID": str(tenant.id)},
+        json={
+            "person_id": person_response.json()["id"],
+            "employee_number": "EMP-9801",
+            "employment_status": "ACTIVE",
+            "employment_type": "PERMANENT",
+            "hire_date": "2026-01-01",
+        },
+    )
+
+    assert employee_response.status_code == 201
+
+    employee_id = employee_response.json()["id"]
+
+    response = client.post(
+        f"/hr/employees/{employee_id}/status",
+        headers={"X-Tenant-ID": str(tenant.id)},
+        json={
+            "status": "ON_LEAVE",
+            "effective_from": "2030-01-01T00:00:00Z",
+            "reason": "Future leave",
+        },
+    )
+
+    assert response.status_code == 400
+    assert response.json()["detail"] == (
+        "effective_from cannot be in the future."
+    )
+
+
+def test_employee_status_transition_rejects_same_status(db):
+    tenant = create_tenant(db)
+
+    person_response = client.post(
+        "/hr/persons",
+        headers={"X-Tenant-ID": str(tenant.id)},
+        json={
+            "person_number": "P-9901",
+            "first_name": "Same",
+            "last_name": "Status",
+        },
+    )
+
+    employee_response = client.post(
+        "/hr/employees",
+        headers={"X-Tenant-ID": str(tenant.id)},
+        json={
+            "person_id": person_response.json()["id"],
+            "employee_number": "EMP-9901",
+            "employment_status": "ACTIVE",
+            "employment_type": "PERMANENT",
+            "hire_date": "2026-01-01",
+        },
+    )
+
+    assert employee_response.status_code == 201
+
+    employee_id = employee_response.json()["id"]
+
+    response = client.post(
+        f"/hr/employees/{employee_id}/status",
+        headers={"X-Tenant-ID": str(tenant.id)},
+        json={
+            "status": "ACTIVE",
+            "effective_from": "2026-06-01T00:00:00Z",
+            "reason": "Duplicate status",
+        },
+    )
+
+    assert response.status_code == 400
+    assert response.json()["detail"] == (
+        "Employee already has this employment status."
+    )
+
+
+def test_employee_status_endpoints_are_tenant_isolated(db):
+    tenant_a = create_tenant(db, "Status Tenant A")
+    tenant_b = create_tenant(db, "Status Tenant B")
+
+    person_response = client.post(
+        "/hr/persons",
+        headers={"X-Tenant-ID": str(tenant_a.id)},
+        json={
+            "person_number": "P-9910",
+            "first_name": "Tenant",
+            "last_name": "Status",
+        },
+    )
+
+    assert person_response.status_code == 201
+
+    employee_response = client.post(
+        "/hr/employees",
+        headers={"X-Tenant-ID": str(tenant_a.id)},
+        json={
+            "person_id": person_response.json()["id"],
+            "employee_number": "EMP-9910",
+            "employment_status": "ACTIVE",
+            "employment_type": "PERMANENT",
+            "hire_date": "2026-01-01",
+        },
+    )
+
+    assert employee_response.status_code == 201
+
+    employee_id = employee_response.json()["id"]
+
+    response = client.post(
+        f"/hr/employees/{employee_id}/status",
+        headers={"X-Tenant-ID": str(tenant_b.id)},
+        json={
+            "status": "ON_LEAVE",
+            "effective_from": "2026-06-01T00:00:00Z",
+            "reason": "Cross-tenant attempt",
+        },
+    )
+
+    assert response.status_code == 400
+    assert response.json()["detail"] == (
+        "Employee not found for this tenant."
+    )
+
+    response = client.get(
+        f"/hr/employees/{employee_id}/status/current",
+        headers={"X-Tenant-ID": str(tenant_b.id)},
+    )
+
+    assert response.status_code == 404
+
+    response = client.get(
+        f"/hr/employees/{employee_id}/status/history",
+        headers={"X-Tenant-ID": str(tenant_b.id)},
+    )
+
+    assert response.status_code == 404
+
+
+

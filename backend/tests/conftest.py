@@ -10,10 +10,13 @@ TEST_DATABASE_URL = (
     "postgresql+psycopg://kifaru:kifaru_dev_password@localhost:5432/kifaru"
 )
 
+
 engine = create_engine(TEST_DATABASE_URL)
 
-TestingSession = sessionmaker(bind=engine)
-
+TestingSession = sessionmaker(
+    bind=engine,
+    join_transaction_mode="create_savepoint",
+)
 
 @pytest.fixture
 def db():

@@ -4,11 +4,14 @@ from fastapi import APIRouter, Depends, Header, HTTPException, status
 from sqlalchemy.orm import Session
 
 from app.core.dependencies import get_db
+
 from app.hr.schemas import (
     EmployeeCreate,
     EmployeeResponse,
     EmploymentAssignmentCreate,
     EmploymentAssignmentResponse,
+    EmploymentStatusHistoryResponse,
+    EmploymentStatusTransitionCreate,
     EmploymentTermCreate,
     EmploymentTermResponse,
     PersonCreate,
@@ -19,6 +22,7 @@ from app.hr.schemas import (
 from app.hr.service import (
     EmployeeService,
     EmploymentAssignmentService,
+    EmploymentStatusHistoryService,
     EmploymentTermService,
     PersonService,
 )
@@ -44,7 +48,7 @@ def create_person(
     db: Session = Depends(get_db),
 ):
     try:
-        return PersonService(db).create_person(
+        person = PersonService(db).create_person(
             tenant_id=tenant_id,
             person_number=payload.person_number,
             first_name=payload.first_name,
@@ -57,12 +61,21 @@ def create_person(
             national_id_number=payload.national_id_number,
             tax_identifier=payload.tax_identifier,
         )
+
+        db.commit()
+
+        return person
+
     except ValueError as exc:
+        db.rollback()
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail=str(exc),
         ) from exc
 
+    except Exception:
+        db.rollback()
+        raise
 
 @router.get(
     "/persons/{person_id}",
@@ -96,7 +109,7 @@ def create_employee(
     db: Session = Depends(get_db),
 ):
     try:
-       return EmployeeService(db).create_employee(
+        employee = EmployeeService(db).create_employee(
             tenant_id=tenant_id,
             person_id=payload.person_id,
             employee_number=payload.employee_number,
@@ -106,12 +119,21 @@ def create_employee(
             termination_date=payload.termination_date,
             termination_reason=payload.termination_reason,
         )
+
+        db.commit()
+
+        return employee
+
     except ValueError as exc:
+        db.rollback()
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail=str(exc),
         ) from exc
 
+    except Exception:
+        db.rollback()
+        raise
 
 @router.get(
     "/employees/{employee_id}",
@@ -145,7 +167,7 @@ def create_employment_assignment(
     db: Session = Depends(get_db),
 ):
     try:
-        return EmploymentAssignmentService(db).create_assignment(
+        assignment = EmploymentAssignmentService(db).create_assignment(
             tenant_id=tenant_id,
             employee_id=payload.employee_id,
             organization_unit_id=payload.organization_unit_id,
@@ -154,13 +176,21 @@ def create_employment_assignment(
             effective_to=payload.effective_to,
             manager_employee_id=payload.manager_employee_id,
         )
+
+        db.commit()
+
+        return assignment
+
     except ValueError as exc:
+        db.rollback()
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail=str(exc),
         ) from exc
 
-
+    except Exception:
+        db.rollback()
+        raise
 @router.get(
     "/employment-assignments/{assignment_id}",
     response_model=EmploymentAssignmentResponse,
@@ -237,7 +267,7 @@ def create_employment_term(
     db: Session = Depends(get_db),
 ):
     try:
-        return EmploymentTermService(db).create_term(
+        term = EmploymentTermService(db).create_term(
             tenant_id=tenant_id,
             employee_id=payload.employee_id,
             effective_from=payload.effective_from,
@@ -247,11 +277,21 @@ def create_employment_term(
             currency_code=payload.currency_code,
             amount=payload.amount,
         )
+
+        db.commit()
+
+        return term
+
     except ValueError as exc:
+        db.rollback()
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail=str(exc),
         ) from exc
+
+    except Exception:
+        db.rollback()
+        raise
 
 
 @router.get(
@@ -307,6 +347,85 @@ def get_employment_term_history(
 ):
     try:
         return EmploymentTermService(db).get_term_history(
+            tenant_id=tenant_id,
+            employee_id=employee_id,
+        )
+    except ValueError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=str(exc),
+        ) from exc
+
+
+
+@router.post(
+    "/employees/{employee_id}/status",
+    response_model=EmploymentStatusHistoryResponse,
+    status_code=status.HTTP_201_CREATED,
+)
+def transition_employee_status(
+    employee_id: UUID,
+    payload: EmploymentStatusTransitionCreate,
+    tenant_id: UUID = Depends(get_tenant_id),
+    db: Session = Depends(get_db),
+):
+    try:
+        history = EmploymentStatusHistoryService(db).transition_status(
+            tenant_id=tenant_id,
+            employee_id=employee_id,
+            status=payload.status,
+            effective_from=payload.effective_from,
+            reason=payload.reason,
+        )
+
+        db.commit()
+
+        return history
+
+    except ValueError as exc:
+        db.rollback()
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=str(exc),
+        ) from exc
+
+    except Exception:
+        db.rollback()
+        raise
+
+
+@router.get(
+    "/employees/{employee_id}/status/current",
+    response_model=EmploymentStatusHistoryResponse | None,
+)
+def get_current_employee_status(
+    employee_id: UUID,
+    tenant_id: UUID = Depends(get_tenant_id),
+    db: Session = Depends(get_db),
+):
+    try:
+        return EmploymentStatusHistoryService(db).get_current_status(
+            tenant_id=tenant_id,
+            employee_id=employee_id,
+        )
+    except ValueError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=str(exc),
+        ) from exc
+
+
+@router.get(
+    "/employees/{employee_id}/status/history",
+    response_model=list[EmploymentStatusHistoryResponse],
+)
+def get_employee_status_history(
+    employee_id: UUID,
+    tenant_id: UUID = Depends(get_tenant_id),
+    db: Session = Depends(get_db),
+):
+    try:
+        return EmploymentStatusHistoryService(db).get_status_history(
             tenant_id=tenant_id,
             employee_id=employee_id,
         )

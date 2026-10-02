@@ -18,9 +18,6 @@ from .schemas import (
 )
 from .service import LegalEntityService
 
-router = APIRouter(prefix="/legal-entities", tags=["Legal Entities"])
-
-
 router = APIRouter(
     prefix="/organization",
     tags=["Organization"],
@@ -28,25 +25,38 @@ router = APIRouter(
 service = LegalEntityService()
 
 
-@router.post(
-    "",
-    response_model=LegalEntityResponse,
-    status_code=201,
-)
-def create_legal_entity(
-    payload: LegalEntityCreate,
-    db: Session = Depends(get_db),
-):
-    return service.create(db, payload)
-
-
-
-
 
 def get_tenant_id(
     x_tenant_id: UUID = Header(...),
 ) -> UUID:
     return x_tenant_id
+
+
+@router.post(
+    "/legal-entities",
+    response_model=LegalEntityResponse,
+    status_code=201,
+)
+def create_legal_entity(
+    payload: LegalEntityCreate,
+    tenant_id: UUID = Depends(get_tenant_id),
+    db: Session = Depends(get_db),
+):
+    try:
+        entity = service.create(
+            db,
+            tenant_id,
+            payload,
+        )
+
+        db.commit()
+        db.refresh(entity)
+
+        return entity
+
+    except HTTPException:
+        db.rollback()
+        raise
 
 
 @router.post("/units", response_model=OrganizationUnitResponse, status_code=201)

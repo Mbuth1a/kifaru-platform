@@ -1,5 +1,5 @@
 import uuid
-
+from uuid import uuid4
 from datetime import date, datetime
 
 from decimal import Decimal
@@ -17,8 +17,9 @@ from sqlalchemy import (
     UniqueConstraint,
     func,
     text,
+    column,
 )
-from sqlalchemy.dialects.postgresql import UUID, ExcludeConstraint
+from sqlalchemy.dialects.postgresql import ExcludeConstraint, UUID 
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.core.database import Base
@@ -279,6 +280,12 @@ class Employee(Base):
         back_populates="manager",
         foreign_keys="EmploymentAssignment.manager_employee_id",
     )
+    employment_status_history: Mapped[list["EmploymentStatusHistory"]] = relationship(
+        "EmploymentStatusHistory",
+        back_populates="employee",
+        cascade="all, delete-orphan",
+        overlaps="tenant",
+   )
 
 
 class EmploymentAssignment(Base):
@@ -568,4 +575,125 @@ class EmploymentTerm(Base):
     employee = relationship(
         "Employee",
         overlaps="tenant",
+    )
+
+
+
+
+class EmploymentStatusHistory(Base):
+    __tablename__ = "employment_status_history"
+
+    id: Mapped[UUID] = mapped_column(
+        UUID(as_uuid=True),
+        primary_key=True,
+        default=uuid4,
+    )
+
+    tenant_id: Mapped[UUID] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("tenant.id", ondelete="RESTRICT"),
+        nullable=False,
+        index=True,
+    )
+
+    employee_id: Mapped[UUID] = mapped_column(
+        UUID(as_uuid=True),
+        nullable=False,
+    )
+
+    status: Mapped[EmploymentStatus] = mapped_column(
+        Enum(
+            EmploymentStatus,
+            name="employment_status",
+            create_type=False,
+        ),
+        nullable=False,
+    )
+
+    effective_from: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        nullable=False,
+    )
+
+    effective_to: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True),
+        nullable=True,
+    )
+
+    reason: Mapped[str | None] = mapped_column(
+        String(255),
+        nullable=True,
+    )
+
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        nullable=False,
+        server_default=func.now(),
+    )
+
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        nullable=False,
+        server_default=func.now(),
+        onupdate=func.now(),
+    )
+    employee: Mapped["Employee"] = relationship(
+        "Employee",
+        back_populates="employment_status_history",
+        overlaps="tenant",
+    )
+
+    __table_args__ = (
+        ForeignKeyConstraint(
+            ["tenant_id", "employee_id"],
+            ["employee.tenant_id", "employee.id"],
+            name="fk_employment_status_history_employee_same_tenant",
+            ondelete="RESTRICT",
+        ),
+        UniqueConstraint(
+            "tenant_id",
+            "id",
+            name="uq_employment_status_history_tenant_id",
+        ),
+        CheckConstraint(
+            """
+            effective_to IS NULL
+            OR effective_to > effective_from
+            """,
+            name="ck_employment_status_history_effective_dates",
+        ),
+        Index(
+            "ix_employment_status_history_employee",
+            "tenant_id",
+            "employee_id",
+        ),
+        Index(
+            "ix_employment_status_history_effective_dates",
+            "tenant_id",
+            "effective_from",
+            "effective_to",
+        ),
+        ExcludeConstraint(
+            (
+                "tenant_id",
+                "=",
+            ),
+            (
+                "employee_id",
+                "=",
+            ),
+            (
+                func.tstzrange(
+                    column("effective_from"),
+                    func.coalesce(
+                        column("effective_to"),
+                        text("'infinity'::timestamptz"),
+                    ),
+                    "[)",
+                ),
+                "&&",
+            ),
+            name="ex_employment_status_history_no_overlap",
+            using="gist",
+        ),
     )

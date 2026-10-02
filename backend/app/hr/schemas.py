@@ -133,3 +133,34 @@ class EmploymentTermResponse(BaseModel):
     amount: Decimal
     created_at: datetime
     updated_at: datetime
+
+
+class EmploymentStatusHistoryCreate(BaseModel):
+    employee_id: UUID
+    status: EmploymentStatus
+    effective_from: datetime
+    effective_to: datetime | None = None
+    reason: str | None = Field(default=None, max_length=255)
+
+
+class EmploymentStatusHistoryResponse(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: UUID
+    tenant_id: UUID
+    employee_id: UUID
+    status: EmploymentStatus
+    effective_from: datetime
+    effective_to: datetime | None
+    reason: str | None
+    created_at: datetime
+    updated_at: datetime
+
+
+class EmploymentStatusTransitionCreate(BaseModel):
+    status: EmploymentStatus
+    effective_from: datetime
+    reason: str | None = Field(
+        default=None,
+        max_length=255,
+    )

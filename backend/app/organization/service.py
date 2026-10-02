@@ -18,11 +18,11 @@ class LegalEntityService:
     def __init__(self):
         self.repo = LegalEntityRepository()
 
-    def create(self, db, payload):
+    def create(self, db, tenant_id, payload):
 
         if self.repo.exists_by_name(
             db,
-            payload.tenant_id,
+            tenant_id,
             payload.legal_name,
         ):
             raise HTTPException(
@@ -30,10 +30,17 @@ class LegalEntityService:
                 detail="Legal entity already exists for this tenant.",
             )
 
-        entity = LegalEntity(**payload.model_dump())
+        entity = LegalEntity(
+            tenant_id=tenant_id,
+            legal_name=payload.legal_name,
+            registration_number=payload.registration_number,
+            tax_identifier=payload.tax_identifier,
+            country_code=payload.country_code,
+            currency_code=payload.currency_code,
+            timezone=payload.timezone,
+        )
 
         return self.repo.create(db, entity)
-
 
 
 
