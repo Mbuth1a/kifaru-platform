@@ -1,9 +1,9 @@
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, Header, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.orm import Session
 
-from app.core.dependencies import get_db
+from app.core.dependencies import get_db, get_tenant_id
 
 from app.hr.schemas import (
     EmployeeCreate,
@@ -33,8 +33,6 @@ router = APIRouter(
 )
 
 
-def get_tenant_id(x_tenant_id: UUID = Header(...)) -> UUID:
-    return x_tenant_id
 
 
 @router.post(

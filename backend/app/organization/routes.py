@@ -2,15 +2,15 @@ from fastapi import APIRouter, Depends
 from sqlalchemy.orm import Session
 from uuid import UUID
 
-from fastapi import Header, HTTPException
-from app.core.database import SessionLocal
+from fastapi import HTTPException
+
 from app.organization.schemas import (
     OrganizationUnitCreate,
     OrganizationUnitParentUpdate,
     OrganizationUnitResponse,
 )
 from app.organization.service import OrganizationUnitService
-from app.core.dependencies import get_db
+from app.core.dependencies import get_db, get_tenant_id
 
 from .schemas import (
     LegalEntityCreate,
@@ -26,10 +26,6 @@ service = LegalEntityService()
 
 
 
-def get_tenant_id(
-    x_tenant_id: UUID = Header(...),
-) -> UUID:
-    return x_tenant_id
 
 
 @router.post(
