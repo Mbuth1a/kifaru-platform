@@ -1115,3 +1115,4 @@ def test_rejected_leave_request_cannot_be_cancelled(db):
     assert cancel_response.json()["detail"] == (
         "Invalid leave request status transition: REJECTED -> CANCELLED."
     )
+    
