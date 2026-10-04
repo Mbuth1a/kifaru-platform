@@ -231,7 +231,36 @@ class LeaveService:
             )
 
         return leave_request
+    def list_leave_requests(
+        self,
+        *,
+        tenant_id: UUID,
+        employee_id: UUID | None = None,
+        status: LeaveRequestStatus | None = None,
+    ) -> list[LeaveRequest]:
 
+        query = (
+            self.db.query(LeaveRequest)
+            .filter(
+                LeaveRequest.tenant_id == tenant_id,
+            )
+        )
+
+        if employee_id is not None:
+            query = query.filter(
+                LeaveRequest.employee_id == employee_id,
+            )
+
+        if status is not None:
+            query = query.filter(
+                LeaveRequest.status == status,
+            )
+
+        return (
+            query
+            .order_by(LeaveRequest.created_at.desc())
+            .all()
+        )
 
 
     

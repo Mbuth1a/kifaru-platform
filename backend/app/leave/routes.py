@@ -2,9 +2,9 @@ from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.orm import Session
-
+from fastapi import APIRouter, Depends, HTTPException, Query, status
 from app.core.dependencies import get_db, get_tenant_id
-
+from app.leave.enums import LeaveRequestStatus
 from app.leave.schemas import (
     LeaveRequestCreate,
     LeaveRequestResponse,
@@ -154,6 +154,28 @@ def get_leave_type(
             detail=str(exc),
         ) from exc
     
+
+@router.get(
+    "/requests",
+    response_model=list[LeaveRequestResponse],
+    status_code=status.HTTP_200_OK,
+)
+def list_leave_requests(
+    employee_id: UUID | None = None,
+    status_filter: LeaveRequestStatus | None = Query(
+        default=None,
+        alias="status",
+    ),
+    tenant_id: UUID = Depends(get_tenant_id),
+    db: Session = Depends(get_db),
+):
+    return LeaveService(db).list_leave_requests(
+        tenant_id=tenant_id,
+        employee_id=employee_id,
+        status=status_filter,
+    )
+
+
 
 
 @router.get(
