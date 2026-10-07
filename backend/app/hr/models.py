@@ -593,7 +593,7 @@ class EmploymentStatusHistory(Base):
         UUID(as_uuid=True),
         ForeignKey("tenant.id", ondelete="RESTRICT"),
         nullable=False,
-        index=True,
+        
     )
 
     employee_id: Mapped[UUID] = mapped_column(
@@ -662,6 +662,12 @@ class EmploymentStatusHistory(Base):
             """,
             name="ck_employment_status_history_effective_dates",
         ),
+
+        Index(
+        "ix_employment_status_history_tenant",
+        "tenant_id",
+        ),
+
         Index(
             "ix_employment_status_history_employee",
             "tenant_id",
