@@ -5,8 +5,10 @@ from app.hr import models as hr_models
 from app.leave import models as leave_models
 from app.organization import models as organization_models
 from app.attendance import models as attendance_models
+from app.schedule import models as schedule_models
 from sqlalchemy import engine_from_config
 from sqlalchemy import pool
+
 
 from alembic import context
 # this is the Alembic Config object, which provides
