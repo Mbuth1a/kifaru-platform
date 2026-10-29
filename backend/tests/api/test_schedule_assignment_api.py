@@ -525,3 +525,87 @@ def test_effective_employee_schedule_returns_404_for_missing_employee(db):
     )
 
     assert response.status_code == 404
+
+def test_effective_employee_schedule_returns_null_shift_on_day_off(db):
+    tenant = create_tenant(db)
+    employee = create_employee(db, tenant.id)
+    schedule = create_schedule(db, tenant.id)
+
+    assignment = create_assignment(
+        tenant.id,
+        employee.id,
+        schedule.id,
+        effective_from="2026-01-01",
+    )
+    assert assignment.status_code == 201
+
+    response = client.get(
+        f"/schedule/employees/{employee.id}/effective",
+        headers={"X-Tenant-ID": str(tenant.id)},
+        params={"on_date": "2026-10-27"},  # Tuesday
+    )
+
+    assert response.status_code == 200
+    data = response.json()
+
+    assert data["day"] == "TUESDAY"
+    assert data["assignment_id"] is not None
+    assert data["work_schedule_id"] == str(schedule.id)
+    assert data["work_shift_id"] is None
+    assert data["work_shift_code"] is None
+    assert data["shift_start_time"] is None
+    assert data["shift_end_time"] is None
+
+def test_effective_employee_schedule_includes_assignment_on_start_date(db):
+    tenant = create_tenant(db)
+    employee = create_employee(db, tenant.id)
+    schedule = create_schedule(db, tenant.id)
+
+    assignment = create_assignment(
+        tenant.id,
+        employee.id,
+        schedule.id,
+        effective_from="2026-10-26",
+        effective_to="2026-10-28",
+    )
+    assert assignment.status_code == 201
+
+    response = client.get(
+        f"/schedule/employees/{employee.id}/effective",
+        headers={"X-Tenant-ID": str(tenant.id)},
+        params={"on_date": "2026-10-26"},
+    )
+
+    assert response.status_code == 200
+    data = response.json()
+
+    assert data["assignment_id"] == assignment.json()["id"]
+    assert data["work_schedule_id"] == str(schedule.id)
+
+
+def test_effective_employee_schedule_excludes_assignment_on_end_date(db):
+    tenant = create_tenant(db)
+    employee = create_employee(db, tenant.id)
+    schedule = create_schedule(db, tenant.id)
+
+    assignment = create_assignment(
+        tenant.id,
+        employee.id,
+        schedule.id,
+        effective_from="2026-10-26",
+        effective_to="2026-10-28",
+    )
+    assert assignment.status_code == 201
+
+    response = client.get(
+        f"/schedule/employees/{employee.id}/effective",
+        headers={"X-Tenant-ID": str(tenant.id)},
+        params={"on_date": "2026-10-28"},
+    )
+
+    assert response.status_code == 200
+    data = response.json()
+
+    assert data["assignment_id"] is None
+    assert data["work_schedule_id"] is None
+    assert data["work_shift_id"] is None
