@@ -399,12 +399,32 @@ def test_daily_schedule_includes_employee_without_assignment(db):
     assert item["work_shift_id"] is None
 
 
+
 def test_daily_schedule_is_tenant_scoped(db):
     tenant_a = create_tenant(db, "Daily Tenant A")
     tenant_b = create_tenant(db, "Daily Tenant B")
 
     employee_a = create_employee(db, tenant_a.id)
     employee_b = create_employee(db, tenant_b.id)
+
+    schedule_a = create_schedule(db, tenant_a.id)
+    schedule_b = create_schedule(db, tenant_b.id)
+
+    assignment_a = create_assignment(
+        tenant_a.id,
+        employee_a.id,
+        schedule_a.id,
+        effective_from="2026-01-01",
+    )
+    assignment_b = create_assignment(
+        tenant_b.id,
+        employee_b.id,
+        schedule_b.id,
+        effective_from="2026-01-01",
+    )
+
+    assert assignment_a.status_code == 201
+    assert assignment_b.status_code == 201
 
     response = client.get(
         "/schedule/daily",
@@ -418,8 +438,17 @@ def test_daily_schedule_is_tenant_scoped(db):
     employee_ids = {
         item["employee_id"] for item in data["employees"]
     }
+
     assert employee_ids == {str(employee_a.id)}
     assert str(employee_b.id) not in employee_ids
+
+    employee_a_entry = next(
+        item
+        for item in data["employees"]
+        if item["employee_id"] == str(employee_a.id)
+    )
+    assert employee_a_entry["assignment_id"] == assignment_a.json()["id"]
+    assert employee_a_entry["work_schedule_id"] == str(schedule_a.id)
 
 
 def test_daily_schedule_requires_tenant_header(db):
