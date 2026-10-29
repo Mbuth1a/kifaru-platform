@@ -702,3 +702,41 @@ def test_daily_schedule_shows_no_active_assignment_after_expiry(db):
     assert item["work_shift_code"] is None
     assert item["shift_start_time"] is None
     assert item["shift_end_time"] is None
+
+
+
+def test_daily_schedule_excludes_terminated_employee(db):
+    tenant = create_tenant(db)
+
+    active_employee = create_employee(db, tenant.id)
+    terminated_employee = create_employee(
+        db,
+        tenant.id,
+        status=EmploymentStatus.TERMINATED,
+    )
+
+    schedule = create_schedule(db, tenant.id)
+
+    active_assignment = create_assignment(
+        tenant.id,
+        active_employee.id,
+        schedule.id,
+        effective_from="2026-01-01",
+    )
+    assert active_assignment.status_code == 201
+
+    response = client.get(
+        "/schedule/daily",
+        headers={"X-Tenant-ID": str(tenant.id)},
+        params={"on_date": "2026-10-26"},
+    )
+
+    assert response.status_code == 200
+    data = response.json()
+
+    employee_ids = {
+        item["employee_id"] for item in data["employees"]
+    }
+
+    assert str(active_employee.id) in employee_ids
+    assert str(terminated_employee.id) not in employee_ids
