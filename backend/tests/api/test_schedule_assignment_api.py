@@ -609,3 +609,61 @@ def test_effective_employee_schedule_excludes_assignment_on_end_date(db):
     assert data["assignment_id"] is None
     assert data["work_schedule_id"] is None
     assert data["work_shift_id"] is None
+
+
+def test_effective_employee_schedule_switches_on_adjacent_assignment_boundary(db):
+    tenant = create_tenant(db)
+    employee = create_employee(db, tenant.id)
+
+    schedule_a = create_schedule(db, tenant.id)
+    schedule_b = create_schedule(db, tenant.id)
+
+    first = create_assignment(
+        tenant.id,
+        employee.id,
+        schedule_a.id,
+        effective_from="2026-01-01",
+        effective_to="2026-04-01",
+    )
+    assert first.status_code == 201
+
+    second = create_assignment(
+        tenant.id,
+        employee.id,
+        schedule_b.id,
+        effective_from="2026-04-01",
+        effective_to="2026-07-01",
+    )
+    assert second.status_code == 201
+
+    response_before = client.get(
+        f"/schedule/employees/{employee.id}/effective",
+        headers={"X-Tenant-ID": str(tenant.id)},
+        params={"on_date": "2026-03-31"},
+    )
+
+    assert response_before.status_code == 200
+    assert (
+        response_before.json()["assignment_id"]
+        == first.json()["id"]
+    )
+    assert (
+        response_before.json()["work_schedule_id"]
+        == str(schedule_a.id)
+    )
+
+    response_at_boundary = client.get(
+        f"/schedule/employees/{employee.id}/effective",
+        headers={"X-Tenant-ID": str(tenant.id)},
+        params={"on_date": "2026-04-01"},
+    )
+
+    assert response_at_boundary.status_code == 200
+    assert (
+        response_at_boundary.json()["assignment_id"]
+        == second.json()["id"]
+    )
+    assert (
+        response_at_boundary.json()["work_schedule_id"]
+        == str(schedule_b.id)
+    )
