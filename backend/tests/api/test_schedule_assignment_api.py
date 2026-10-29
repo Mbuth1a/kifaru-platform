@@ -441,3 +441,87 @@ def test_daily_schedule_rejects_invalid_date(db):
     )
 
     assert response.status_code == 422
+
+
+
+
+def test_effective_employee_schedule_returns_assigned_shift(db):
+    tenant = create_tenant(db)
+    employee = create_employee(db, tenant.id)
+    schedule = create_schedule(db, tenant.id)
+
+    assignment = create_assignment(
+        tenant.id,
+        employee.id,
+        schedule.id,
+        effective_from="2026-01-01",
+    )
+    assert assignment.status_code == 201
+
+    response = client.get(
+        f"/schedule/employees/{employee.id}/effective",
+        headers={"X-Tenant-ID": str(tenant.id)},
+        params={"on_date": "2026-10-26"},
+    )
+
+    assert response.status_code == 200
+    data = response.json()
+
+    assert data["on_date"] == "2026-10-26"
+    assert data["day"] == "MONDAY"
+    assert data["employee_id"] == str(employee.id)
+    assert data["employee_number"] == employee.employee_number
+    assert data["assignment_id"] is not None
+    assert data["work_schedule_id"] == str(schedule.id)
+    assert data["work_shift_code"].startswith("DAY-")
+    assert data["shift_start_time"] == "08:00:00"
+    assert data["shift_end_time"] == "17:00:00"
+
+
+
+def test_effective_employee_schedule_returns_nulls_without_assignment(db):
+    tenant = create_tenant(db)
+    employee = create_employee(db, tenant.id)
+
+    response = client.get(
+        f"/schedule/employees/{employee.id}/effective",
+        headers={"X-Tenant-ID": str(tenant.id)},
+        params={"on_date": "2026-10-26"},
+    )
+
+    assert response.status_code == 200
+    data = response.json()
+
+    assert data["employee_id"] == str(employee.id)
+    assert data["on_date"] == "2026-10-26"
+    assert data["day"] == "MONDAY"
+    assert data["assignment_id"] is None
+    assert data["work_schedule_id"] is None
+    assert data["work_shift_id"] is None
+
+
+def test_effective_employee_schedule_returns_404_for_other_tenant(db):
+    tenant_a = create_tenant(db, "Effective Tenant A")
+    tenant_b = create_tenant(db, "Effective Tenant B")
+    employee_b = create_employee(db, tenant_b.id)
+
+    response = client.get(
+        f"/schedule/employees/{employee_b.id}/effective",
+        headers={"X-Tenant-ID": str(tenant_a.id)},
+        params={"on_date": "2026-10-26"},
+    )
+
+    assert response.status_code == 404
+
+
+
+def test_effective_employee_schedule_returns_404_for_missing_employee(db):
+    tenant = create_tenant(db)
+
+    response = client.get(
+        f"/schedule/employees/{uuid4()}/effective",
+        headers={"X-Tenant-ID": str(tenant.id)},
+        params={"on_date": "2026-10-26"},
+    )
+
+    assert response.status_code == 404

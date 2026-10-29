@@ -308,7 +308,91 @@ class DailyScheduleService:
 
     def __init__(self, db: Session):
         self.db = db
+    def get_effective_employee_schedule(
+        self,
+        tenant_id: UUID,
+        employee_id: UUID,
+        on_date: date,
+    ) -> dict:
+        day = ScheduleDay[on_date.strftime("%A").upper()]
 
+        statement = (
+            select(
+                Employee,
+                EmployeeScheduleAssignment,
+                WorkSchedule,
+                WorkScheduleDay,
+                WorkShift,
+            )
+            .join(Employee.person)
+            .outerjoin(
+                EmployeeScheduleAssignment,
+                (
+                    EmployeeScheduleAssignment.employee_id == Employee.id
+                )
+                & (
+                    EmployeeScheduleAssignment.tenant_id
+                    == Employee.tenant_id
+                )
+                & (
+                    EmployeeScheduleAssignment.effective_from <= on_date
+                )
+                & (
+                    EmployeeScheduleAssignment.effective_to.is_(None)
+                    | (EmployeeScheduleAssignment.effective_to > on_date)
+                ),
+            )
+            .outerjoin(
+                WorkSchedule,
+                (
+                    WorkSchedule.id
+                    == EmployeeScheduleAssignment.work_schedule_id
+                )
+                & (WorkSchedule.tenant_id == tenant_id),
+            )
+            .outerjoin(
+                WorkScheduleDay,
+                (WorkScheduleDay.work_schedule_id == WorkSchedule.id)
+                & (WorkScheduleDay.tenant_id == tenant_id)
+                & (WorkScheduleDay.day == day),
+            )
+            .outerjoin(
+                WorkShift,
+                (WorkShift.id == WorkScheduleDay.work_shift_id)
+                & (WorkShift.tenant_id == tenant_id),
+            )
+            .where(
+                Employee.tenant_id == tenant_id,
+                Employee.id == employee_id,
+                Employee.employment_status != EmploymentStatus.TERMINATED,
+            )
+        )
+
+        row = self.db.execute(statement).one_or_none()
+
+        if row is None:
+            raise ValueError("Employee not found.")
+
+        employee, assignment, schedule, schedule_day, shift = row
+
+        return {
+            "employee_id": employee.id,
+            "employee_number": employee.employee_number,
+            "first_name": employee.person.first_name,
+            "last_name": employee.person.last_name,
+            "employment_status": employee.employment_status.value,
+            "assignment_id": assignment.id if assignment else None,
+            "work_schedule_id": schedule.id if schedule else None,
+            "work_schedule_code": schedule.code if schedule else None,
+            "work_schedule_name": schedule.name if schedule else None,
+            "work_shift_id": shift.id if shift else None,
+            "work_shift_code": shift.code if shift else None,
+            "work_shift_name": shift.name if shift else None,
+            "shift_start_time": shift.start_time if shift else None,
+            "shift_end_time": shift.end_time if shift else None,
+            "on_date": on_date,
+            "day": day,
+        }
     def get_daily_schedule(
         self,
         tenant_id: UUID,

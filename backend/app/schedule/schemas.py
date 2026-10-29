@@ -107,3 +107,9 @@ class DailyScheduleResponse(BaseModel):
     on_date: date
     day: ScheduleDay
     employees: list[DailyScheduleEmployeeResponse]
+
+
+
+class EffectiveEmployeeScheduleResponse(DailyScheduleEmployeeResponse):
+    on_date: date
+    day: ScheduleDay

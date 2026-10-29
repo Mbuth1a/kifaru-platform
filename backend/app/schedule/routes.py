@@ -15,6 +15,7 @@ from app.schedule.schemas import (
     EmployeeScheduleAssignmentResponse,
     DailyScheduleEmployeeResponse,
     DailyScheduleResponse,
+    EffectiveEmployeeScheduleResponse,
 )
 from app.schedule.service import (
     DailyScheduleService,
@@ -27,8 +28,6 @@ router = APIRouter(
     prefix="/schedule",
     tags=["Schedule"],
 )
-
-
 @router.post(
     "/work-shifts",
     response_model=WorkShiftResponse,
@@ -69,7 +68,6 @@ def create_work_shift(
         db.rollback()
         raise
 
-
 @router.get(
     "/work-shifts",
     response_model=list[WorkShiftResponse],
@@ -80,7 +78,6 @@ def list_work_shifts(
     db: Session = Depends(get_db),
 ):
     return WorkShiftService(db).list_work_shifts(tenant_id=tenant_id)
-
 
 @router.get(
     "/work-shifts/{work_shift_id}",
@@ -102,7 +99,6 @@ def get_work_shift(
             status_code=status.HTTP_404_NOT_FOUND,
             detail=str(exc),
         ) from exc
-
 
 @router.post(
     "/work-schedules",
@@ -146,7 +142,6 @@ def create_work_schedule(
         db.rollback()
         raise
 
-
 @router.get(
     "/work-schedules",
     response_model=list[WorkScheduleResponse],
@@ -157,7 +152,6 @@ def list_work_schedules(
     db: Session = Depends(get_db),
 ):
     return WorkScheduleService(db).list_work_schedules(tenant_id=tenant_id)
-
 
 @router.get(
     "/work-schedules/{work_schedule_id}",
@@ -179,8 +173,6 @@ def get_work_schedule(
             status_code=status.HTTP_404_NOT_FOUND,
             detail=str(exc),
         ) from exc
-
-
 
 @router.post(
     "/assignments",
@@ -225,9 +217,6 @@ def create_schedule_assignment(
         db.rollback()
         raise
 
-
-
-
 @router.get(
     "/assignments",
     response_model=list[EmployeeScheduleAssignmentResponse],
@@ -242,8 +231,6 @@ def list_schedule_assignments(
         tenant_id=tenant_id,
         employee_id=employee_id,
     )
-
-
 
 @router.get(
     "/daily",
@@ -260,3 +247,26 @@ def get_daily_schedule(
         on_date=on_date,
     )
     return result
+
+@router.get(
+    "/employees/{employee_id}/effective",
+    response_model=EffectiveEmployeeScheduleResponse,
+    status_code=status.HTTP_200_OK,
+)
+def get_effective_employee_schedule(
+    employee_id: UUID,
+    on_date: date = Query(...),
+    tenant_id: UUID = Depends(get_tenant_id),
+    db: Session = Depends(get_db),
+):
+    try:
+        return DailyScheduleService(db).get_effective_employee_schedule(
+            tenant_id=tenant_id,
+            employee_id=employee_id,
+            on_date=on_date,
+        )
+    except ValueError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=str(exc),
+        ) from exc
