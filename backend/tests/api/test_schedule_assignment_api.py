@@ -667,3 +667,38 @@ def test_effective_employee_schedule_switches_on_adjacent_assignment_boundary(db
         response_at_boundary.json()["work_schedule_id"]
         == str(schedule_b.id)
     )
+
+def test_daily_schedule_shows_no_active_assignment_after_expiry(db):
+    tenant = create_tenant(db)
+    employee = create_employee(db, tenant.id)
+    schedule = create_schedule(db, tenant.id)
+
+    assignment = create_assignment(
+        tenant.id,
+        employee.id,
+        schedule.id,
+        effective_from="2026-10-26",
+        effective_to="2026-10-28",
+    )
+    assert assignment.status_code == 201
+
+    response = client.get(
+        "/schedule/daily",
+        headers={"X-Tenant-ID": str(tenant.id)},
+        params={"on_date": "2026-10-28"},
+    )
+
+    assert response.status_code == 200
+    data = response.json()
+
+    assert data["on_date"] == "2026-10-28"
+    assert len(data["employees"]) == 1
+
+    item = data["employees"][0]
+    assert item["employee_id"] == str(employee.id)
+    assert item["assignment_id"] is None
+    assert item["work_schedule_id"] is None
+    assert item["work_shift_id"] is None
+    assert item["work_shift_code"] is None
+    assert item["shift_start_time"] is None
+    assert item["shift_end_time"] is None
